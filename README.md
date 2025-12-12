@@ -1,6 +1,7 @@
 ## picgo-plugin-im.ge-uploader
 
-![image-20250610144100412](http://mmbiz.qpic.cn/mmbiz_png/ibCcanvFibpjFlwk1EGsWFW8ib83aHIGuEFZib2WuSYDibpK4iciakfgCKDzib8JXph06kiaho1PrE0XvicMfZWibKepeqrOg/0?from=appmsg)
+![image-20251212133159803](https://i.im.ge/2025/12/12/4vpJCJ.image-20251212133159803.png)
+![image-20251212133237521](https://i.im.ge/2025/12/12/4vpnvy.image-20251212133237521.png)
 
 
 ### 安装
