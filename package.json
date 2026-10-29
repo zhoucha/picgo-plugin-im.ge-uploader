@@ -1,6 +1,6 @@
 {
   "name": "picgo-plugin-im.ge-uploader",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "IM.GE图床",
   "main": "dist/index.js",
   "publishConfig": {
@@ -19,7 +19,7 @@
     "picgo",
     "picgo-plugin"
   ],
-  "author": "超哥",
+  "author": "chaoge1063",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "16.9.1",

@@ -10,6 +10,16 @@ interface ImgeConfig {
   imageMaxSize: number
 }
 
+// 常见图片扩展名 -> MIME 类型映射，用于 multipart 上传时的 contentType 声明
+const MIME_MAP: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp'
+}
+
 export = (ctx: PicGo) => {
 
   const config = (): IPluginConfig[] => {
@@ -29,8 +39,6 @@ export = (ctx: PicGo) => {
       }
     ]
   }
-  
-
   const handleUpload = async (ctx: PicGo): Promise<boolean> => {
     try {
       const userConfig = ctx.getConfig<ImgeConfig>(`picBed.${CONFIG_NAME}`)
@@ -50,31 +58,37 @@ export = (ctx: PicGo) => {
         
         // 上传到IMGE
         ctx.log.info('upload :', img.fileName, img.extname, img.buffer.length, 'bytes');
+        // Content-Type 由 request 库根据 formData 自动生成（带 boundary），无需手动设置
+        const mimeType = MIME_MAP[(img.extname || '').toLowerCase()] || 'image/jpeg'
         const uploadResponse:any = await ctx.request({
-          url: `https://im.ge/api/1/upload`,
+          url: `https://im.ge/api/v1/upload`,
           method: 'POST',
           headers: {
-            'Content-Type': 'multipart/form-data',
-            'X-API-Key': apiKey
+            'Authorization': `Bearer ${apiKey}`
           },
           formData: {
-            source: {
+            file: {
               value: img.buffer,
               options: {
                 filename: img.fileName,
-                contentType: img.extname ? `image/${img.extname}` : 'image/jpeg'
+                contentType: mimeType
               }
-            },
-            format: "json"
+            }
           },
           json: true
-        }) 
+        })
         ctx.log.info('IM.GE图床上传响应',uploadResponse)
-        if (uploadResponse.status_code !== 200) {
-          throw new Error(`上传失败: ${uploadResponse.status_txt}`)
+        // 官方响应为 { success: boolean, data: { url, ... } }，兼容旧版 { status_code, image: { url } } 结构
+        if (uploadResponse.success === false) {
+          throw new Error(`上传失败: ${uploadResponse.message || uploadResponse.error || '未知错误'}`)
         }
-        // // 保存结果
-        img.imgUrl = uploadResponse.image.url
+        // // 保存结果（多路径兜底兼容不同响应结构）
+        const rawUrl = uploadResponse?.data?.url || uploadResponse?.data?.image?.url ||
+          uploadResponse?.data?.links?.url || uploadResponse?.image?.url
+        if (!rawUrl) {
+          throw new Error('IM.GE图床返回的URL为空')
+        }
+        img.imgUrl = rawUrl
         img.fullResult = uploadResponse
       }
       return true
@@ -91,33 +105,25 @@ export = (ctx: PicGo) => {
   
 
   const handleAfterUpload = async (ctx: PicGo): Promise<boolean> => {
-
-    try{
-      const userConfig = ctx.getConfig<ImgeConfig>(`picBed.${CONFIG_NAME}`)
-    // 这里可以处理上传后的逻辑，比如记录日志、发送通知等
+    try {
+      // afterUploadPlugins 对所有图床都会执行，仅在当前使用本图床时才处理，避免改写其他图床的上传结果
+      const currentUploader = ctx.getConfig<string>('picBed.uploader') || ctx.getConfig<string>('picBed.current')
+      if (currentUploader !== CONFIG_NAME) {
+        return true
+      }
       ctx.log.info('IM.GE图床上传完成')
-      
-      //将IM.GE原始URL转换为Markdown/CDN链接，通过afterUploadPlugins实现
+      // 为本图床的上传结果补充 Markdown 格式字段
       for (const img of ctx.output) {
-
-
         if (img.imgUrl) {
-          // 应用CDN前缀解决防盗链问题
-          let finalUrl = img.imgUrl
-          
-          // 这里假设你要将IM.GE URL转换为Markdown格式
-          img.imgUrl = finalUrl
           img.markdown = `![](${img.imgUrl})`
-          ctx.log.info('IM.GE图床上传完成，已应用CDN和Markdown转换')
+          ctx.log.info('IM.GE图床上传完成，图片URL:', img.imgUrl)
         }
       }
-
-    }catch(err: any) {
-        ctx.log.error('上传后处理失败', err)
+    } catch (err: any) {
+      ctx.log.error('上传后处理失败', err)
     }
-
-     return true;
-    }
+    return true
+  }
 
   const register = (): void => {
     ctx.helper.uploader.register(CONFIG_NAME, {
@@ -126,39 +132,23 @@ export = (ctx: PicGo) => {
       config: config,
       
     })
-    ctx.helper.transformer.register(CONFIG_NAME, {
-      handle (ctx) {
-        console.log(ctx)
-        ctx.output.forEach((item) => {
-          console.log('处理图片:', item.fileName)
-        })
-        
-      }
-    })
+    // 不注册 transformer：使用默认 transformer（path）即可读取本地图片，避免选到空 transformer 导致上传失败
     ctx.helper.beforeTransformPlugins.register(CONFIG_NAME, {
       handle (ctx) {
-        console.log(ctx)
+
       }
     })
     ctx.helper.beforeUploadPlugins.register(CONFIG_NAME, {
       handle (ctx) {
-        console.log(ctx)
+
       }
     })
     ctx.helper.afterUploadPlugins.register(CONFIG_NAME, {
-      handle : handleAfterUpload
+      handle: handleAfterUpload
     })
   }
-  const commands = (ctx: PicGo) => [{
-    label: '',
-    key: '',
-    name: '',
-    async handle (ctx: PicGo, guiApi: any) {}
-  }]
   return {
     uploader: CONFIG_NAME,
-    transformer: CONFIG_NAME,
-    commands,
     register
   }
 }
