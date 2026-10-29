@@ -66,6 +66,8 @@ export = (ctx: PicGo) => {
           headers: {
             'Authorization': `Bearer ${apiKey}`
           },
+          // Cloudflare 可能返回 308 重定向，request 库默认不跟随 POST 的 308，需显式开启
+          followAllRedirects: true,
           formData: {
             file: {
               value: img.buffer,
@@ -78,13 +80,14 @@ export = (ctx: PicGo) => {
           json: true
         })
         ctx.log.info('IM.GE图床上传响应',uploadResponse)
-        // 官方响应为 { success: boolean, data: { url, ... } }，兼容旧版 { status_code, image: { url } } 结构
+        // 官方响应为 { success: boolean, data: { ... } }，data.url 是查看器页面而非图片直链
+        // 直链在 direct_url / cdn_url / image.url（i.im.ge 域名）
         if (uploadResponse.success === false) {
-          throw new Error(`上传失败: ${uploadResponse.message || uploadResponse.error || '未知错误'}`)
+          throw new Error(`上传失败: ${uploadResponse?.error?.message || uploadResponse.message || '未知错误'}`)
         }
-        // // 保存结果（多路径兜底兼容不同响应结构）
-        const rawUrl = uploadResponse?.data?.url || uploadResponse?.data?.image?.url ||
-          uploadResponse?.data?.links?.url || uploadResponse?.image?.url
+        // // 保存结果（直链优先，查看器页面兜底）
+        const rawUrl = uploadResponse?.data?.direct_url || uploadResponse?.data?.cdn_url ||
+          uploadResponse?.data?.image?.url || uploadResponse?.image?.url || uploadResponse?.data?.url
         if (!rawUrl) {
           throw new Error('IM.GE图床返回的URL为空')
         }
@@ -93,10 +96,18 @@ export = (ctx: PicGo) => {
       }
       return true
     } catch (err: any) {
+      // request-promise 对非 2xx 抛出 StatusCodeError，err.error 为响应体（json:true 时已解析）
+      const respBody = err?.error
+      const detail = respBody?.error?.details?.errors?.[0]?.error
+      let msg = detail || respBody?.error?.message || respBody?.message || err?.message || '未知错误'
+      // im.ge 有最小图片限制（防滥用），过小的图片会被整体拒绝
+      if (detail === 'Upload rejected') {
+        msg += '（im.ge 会拒绝过小的图片，请确认图片正常后重试）'
+      }
       ctx.log.error('IM.GE图床上传失败', err)
       ctx.emit('notification', {
         title: 'IM.GE图床错误',
-        body: err.message || '未知错误'
+        body: msg
       })
       return false
     }
